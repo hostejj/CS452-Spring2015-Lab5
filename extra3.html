@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<!-- Johnathon Hoste, 2/28/2015, Lab 3 -->
+<html>
+<head>
+<script id="shadowVshader" type="x-shader/x-vertex">
+attribute vec4 aPosition;
+uniform mat4 uMVPmatrix;
+
+void main(){
+	gl_Position = uMVPmatrix * aPosition;
+}
+</script>
+
+<script id="shadowFshader" type="x-shader/x-fragment">
+precision mediump float;
+
+void main(){
+	gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+    //gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 0.0);
+}
+</script>
+
+<script id="normVshader" type="x-shader/x-vertex">
+attribute vec4 aPosition;
+attribute vec4 aColor;
+uniform mat4 uMVPmatrix;
+uniform mat4 uMVPmatrixFL;
+varying vec4 vPositionFL;
+varying vec4 vColor;
+
+void main(){
+	gl_Position = uMVPmatrix * aPosition;
+	vPositionFL = uMVPmatrixFL * aPosition;
+	vColor = aColor;
+}
+</script>
+
+<script id="normFshader" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D uShadowMap;
+varying vec4 vPositionFL;
+varying vec4 vColor;
+
+void main(){
+	vec3 shadowCoord = (vPositionFL.xyz/vPositionFL.w)/2.0 + 0.5;
+	vec4 rgbaDepth = texture2D(uShadowMap, shadowCoord.xy);
+	float depth = rgbaDepth.r;
+	float visibility = (shadowCoord.z > depth + 0.005) ? 0.3 : 1.0;
+	gl_FragColor = vec4(vColor.rgb * visibility, vColor.a);
+}
+</script>
+
+<script type="text/javascript" src="../Common/webgl-utils.js"></script>
+<script type="text/javascript" src="../Common/initShaders.js"></script>
+<script type="text/javascript" src="../Common/MV.js"></script>
+<script type="text/javascript" src="lab5.js"></script>
+</head>
+
+<body>
+<canvas id="gl-canvas" width="512" height="512">
+Oops ... your browser doesn't support the HTML5 canvas element
+</canvas>
+</body>
+</html>

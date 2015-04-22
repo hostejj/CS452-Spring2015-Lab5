@@ -1,1 +1,13 @@
-name, date, description
+Johnathon Hoste 4/21/15 Lab 5
+
+Description:
+
+So to start off, I struggled greatly with getting the shadow map to work. 
+I tried taking my lab three and removing the phong lighting model and
+then adding in the shadow mapping. When I couldn't get that to work I used
+the example that we went through in class and changed it to work with the 
+angel MV library. Then I added my lab 3 shape in place of the triangle that
+the example was originally making use of. Additionally I changed the colors
+to show more contrast with each other.
+
+I've included a bunch of extra files that show old failed attempts with the final result.

@@ -1,0 +1,271 @@
+//Johnathon Hoste, Lab 5, 4/21/2015
+
+var OFFSCREEN_WIDTH = 2048, OFFSCREEN_HEIGHT = 2048;
+var LIGHT_X = 0, LIGHT_Y = 9, LIGHT_Z = 4;
+var ANGLE_STEP = 40;
+var last = Date.now();
+
+var pointsArray = [];
+var colorsArray = [];
+
+//from -10 to +10
+var vertices = [
+		vec4(  0,  5,  1.5, 1.0 ),
+		vec4( -5, -5,  1.5, 1.0 ),
+		vec4(  5, -5,  1.5, 1.0 ),
+		vec4(  0,  5, -1.5, 1.0 ),
+		vec4( -5, -5, -1.5, 1.0 ),
+		vec4(  5, -5, -1.5, 1.0 )
+    ];
+
+var rectangle = [
+		vec4(-9,-9, -8, 1.0),
+		vec4(-9,9, -8, 1.0),
+		vec4(9,-9, -8, 1.0),
+		vec4(9,9, -8, 1.0),
+		vec4(-9,9, -8, 1.0),
+		vec4(9,-9, -8,1.0)
+	];
+
+var gModelMatrix = mat4();		
+var gMVPMatrix = mat4();
+
+window.onload = function init() {
+    var canvas = document.getElementById( "gl-canvas" );
+    
+    var gl = WebGLUtils.setupWebGL( canvas );
+    if ( !gl ) { alert( "WebGL isn't available" ); }
+
+	gl.viewport(0,0, canvas.width, canvas.height);
+	gl.clearColor( 0.1, 0.3, 0.1, 1.0 ); 
+	gl.clear( gl.COLOR_BUFFER_BIT );
+    gl.enable(gl.DEPTH_TEST);
+	
+	
+	var shadowProgram = initShaders( gl, "shadowVshader", "shadowFshader" );
+	shadowProgram.aPosition = gl.getAttribLocation(shadowProgram, "aPosition");
+	shadowProgram.uMVPmatrix = gl.getUniformLocation(shadowProgram, "uMVPmatrix");
+	
+    var normProgram = initShaders( gl, "normVshader", "normFshader" );
+	normProgram.aPosition = gl.getAttribLocation(normProgram, "aPosition");
+	normProgram.aColor = gl.getAttribLocation(normProgram, "aColor");
+	normProgram.uMVPmatrix = gl.getUniformLocation(normProgram, "uMVPmatrix");
+	normProgram.uMVPmatrixFL = gl.getUniformLocation(normProgram, "uMVPmatrixFL");
+	normProgram.uShadowMap = gl.getUniformLocation(normProgram, "uShadowMap");
+	
+	
+	
+	
+	
+	
+	var rectangle = initBuffersForRectnangle(gl);
+	var prism = initBuffersForPrism(gl);
+    
+	var viewProjMFL = mat4();
+	viewProjMFL.setPerspective(70.0, OFFSCREEN_WIDTH/OFFSCREEN_HEIGHT, 1.0, 100.0);
+	viewProjMFL.lookAt(LIGHT_X, LIGHT_Y, LIGHT_Z, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+	
+	var viewProjM = mat4();
+	viewProjM.setPerspective(45, canvas.width/canvas.height, 1.0, 100.0);
+	viewProjM.lookAt(0.0, 7.0, 9.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
+	
+	var currentAngle = 0.0;
+	
+	var mvpMFLt = mat4();
+	var mvpMFLp = mat4();
+	
+	tick(gl);
+};
+
+function tick(gl){
+		currentAngle = animate(currentAngle);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, FBO);
+		gl.viewport( 0, 0, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT );
+		gl.clear(gl.COLOR_BUFFER_BIT | g1.DEPTH_BUFFER_BIT);
+		
+		g1.useProgram(shadowProgram);
+		drawPrism(gl, shadowProgram, prism, currentAngle, viewProjMFL);
+		mvpMFLt.set(g_mvpMatrix);
+		drawRect(gl, shadowProgram, rectangle, viewProjMFL);
+		mvpMFLp.set(g_mvpMatrix);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0,0, canvas.width, canvas.height);
+		gl.clear(gl.COLOR_BUFFER_BIT | g1.DEPTH_BUFFER_BIT);
+		
+		gl.useProgram(normProgram);
+		gl.uniformli(normProgram.uShadowMap, 0);
+		gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, mvpMFLt.elements);
+		drawPrism(gl, normProgram, prism, currentAngle, viewProjM);
+		gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, mvpMFLp.elements);
+		drawRect(gl, normProgram, rectangle, viewProjM);
+		
+		window.requestAnimFrame(tick, canvas);
+	}
+
+function drawPrism(gl, program, prism, angle, viewProjM){
+	gModelMatrix.setRotate(angle,0,1,0);
+	draw(gl, program, prism, viewProjM);
+}
+
+function drawRect(gl, program, rectangle, viewProjM){
+	gModelMatrix.setRotate(-45,0,1,1);
+	draw(gl, program, rectangle, viewProjM);
+}
+
+function draw(gl, program, o, viewProjM){
+	initAttibuteVariable(gl, program.aPosition, o.vertexBuffer);
+	if(program.aColor != undefined)
+		initAttibuteVariable(gl, program.aColor, o.colorBuffer);
+		
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indexBuffer);
+	
+	gMVPMatrix.set(viewProjM);
+	gMVPMatrix.multiply(gModelMatrix);
+	gl.uniformMatrix4fv(program.uMVPmatrix, false, gMVPMatrix.elements);
+	
+	gl.drawElements(gl.TRIANGLES, o.numIndices, gl.UNSIGNED_BYTE, 0);
+}
+
+function initAttibuteVariable(gl, aAttribute, buffer){
+	gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+	gl.vertexAttribPointer(aAttribute, buffer.num, buffer.type, false, 0, 0);
+	gl.enableVertexAttribArray(aAttribute);
+}
+
+function initBuffersForPrism(gl){
+	var vertices = new Float32Array([0,0,2,2,-3,-3]);
+	var colors = new Float32Array([1.0,1.0,0.0,0.0]);
+	var indices = new Uint8Array([0,1,2, 0,1,2]);
+	
+	var o = new Object();
+	
+	o.vertexBuffer = initArrayBufferForLaterUse(gl, vertices, 3, gl.FLOAT);
+	o.colorBuffer = initArrayBufferForLaterUse(gl, colors, 3, gl.FLOAT);
+	o.indexBuffer = initElementArrayBufferForLaterUse(gl, indices, gl.UNSIGNED_BYTE);
+	if(!o.vertexBuffer || !o.colorBuffer || !o.indexBuffer){	return null;
+	}
+	o.numIndices = indices.length;
+	
+	gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+	
+	return o;
+}
+
+function initBuffersForRectnangle(gl){
+	var vertices = new Float32Array([0,0,2,2,-3,-3]);
+	var colors = new Float32Array([1.0,1.0,0.0,0.0]);
+	var indices = new Uint8Array([0,1,2, 0,1,2]);
+	
+	var o = new Object();
+	
+	o.vertexBuffer = initArrayBufferForLaterUse(gl, vertices, 3, gl.FLOAT);
+	o.colorBuffer = initArrayBufferForLaterUse(gl, colors, 3, gl.FLOAT);
+	o.indexBuffer = initElementArrayBufferForLaterUse(gl, indices, gl.UNSIGNED_BYTE);
+	if(!o.vertexBuffer || !o.colorBuffer || !o.indexBuffer){	return null;
+	}
+	o.numIndices = indices.length;
+	
+	gl.bindBuffer(gl.ARRAY_BUFFER, null);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+	
+	return o;
+}
+
+function initArrayBufferForLaterUse(gl, data, dims, type){
+	var buffer = gl.createBuffer();
+	if(!buffer){
+		return null;
+	}
+	
+    gl.bindBuffer( gl.ARRAY_BUFFER, buffer );
+    gl.bufferData( gl.ARRAY_BUFFER, data, gl.STATIC_DRAW );
+	
+	buffer.type = type;
+	
+	return buffer;
+}
+
+function initElementArrayBufferForLaterUse(gl, data, type){
+	var buffer = gl.createBuffer();
+	if(!buffer){
+		return null;
+	}
+	
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer);
+	gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data, gl.STATIC_DRAW);
+	
+	buffer.type = type;
+	
+	return buffer;
+}
+
+function animate(angle){
+	var now = Date.now();
+	var elapsed = now - last;
+	last = now;
+	
+	var newAngle = angle + (ANGLE_STEP*elapsed) /1000.0;
+	return newAngle%360;
+}
+
+function quad(a, b, c, d) {
+
+     var t1 = subtract(vertices[d], vertices[b]);
+     var t2 = subtract(vertices[d], vertices[c]);
+     var normal = cross(t2, t1);
+     var normal = vec3(normal);
+
+     pointsArray.push(vertices[a]); 
+     normalsArray.push(normal); 
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+     pointsArray.push(vertices[b]); 
+     normalsArray.push(normal); 
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+     pointsArray.push(vertices[c]); 
+     normalsArray.push(normal);   
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+     pointsArray.push(vertices[a]);  
+     normalsArray.push(normal); 
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+     pointsArray.push(vertices[c]); 
+     normalsArray.push(normal); 
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+     pointsArray.push(vertices[d]); 
+     normalsArray.push(normal);    
+	 colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+}
+
+function tri(a,b,c){
+    var t1 = subtract(vertices[b], vertices[a]);
+    var t2 = subtract(vertices[c], vertices[a]);
+    var normal = cross(t1, t2);
+    var normal = vec3(normal);
+
+	var indices = [a,b,c];
+	
+	for ( var i = 0; i < indices.length; ++i ) {
+        pointsArray.push( vertices[indices[i]] );
+		colorsArray.push([ 0.0, 0.0, 1.0, 1.0 ]);
+		normalsArray.push(normal);
+    } 
+}
+
+function colorPrism()
+{
+    quad( 0, 1, 4, 3 );
+    quad( 2, 0, 3, 5 );
+    quad( 1, 2, 5, 4 );
+	tri( 0, 1, 2);
+	tri( 5, 4, 3);
+}
+
+function makeRect(){
+	for ( var i = 0; i < rectangle.length; ++i ) {
+        pointsArray.push( rectangle[i] );
+		normalsArray.push(vec3(0,0,0)); 
+		colorsArray.push([ 1.0, 0.0, 0.0, 1.0 ]);
+    } 
+}

@@ -1,0 +1,332 @@
+//Johnathon Hoste, Lab 5, 4/21/2015
+var gl, canvas;
+var OFFSCREEN_WIDTH = 2048, OFFSCREEN_HEIGHT = 2048;
+var ANGLE_STEP = 40;
+var last = Date.now();
+var currentAngle;
+var viewProjM, viewProjMFL;
+
+var mvpMFLt;
+var mvpMFLp;
+
+var basicColors = [
+    [ 0.0, 0.0, 0.0, 1.0 ],  // black
+    [ 1.0, 0.0, 0.0, 1.0 ],  // red
+    [ 1.0, 1.0, 0.0, 1.0 ],  // yellow
+    [ 0.0, 1.0, 0.0, 1.0 ],  // green
+    [ 0.0, 0.0, 1.0, 1.0 ],  // blue
+    [ 1.0, 0.0, 1.0, 1.0 ],  // magenta
+    [ 1.0, 1.0, 1.0, 1.0 ],  // white
+    [ 0.0, 1.0, 1.0, 1.0 ],  // cyan
+	[ 0.7, 0.7, 0.7, 1.0 ],  //light gray
+	[ 0.3, 0.3, 0.3, 1.0 ],   //dark gray
+	[ 1.0, 0.5, 0.0, 1.0 ] //orange
+];
+
+var pointsArray = [];
+var colorsArray = [];
+var normalProgram;
+var shadowProgram;
+var xaxis = 0;
+var yaxis = 1;
+var fbo;
+
+//from -10 to +10
+var vertices = [
+		vec4(  0,  3,  1, 1.0 ),
+		vec4( -3, -3,  1, 1.0 ),
+		vec4(  3, -3,  1, 1.0 ),
+		vec4(  0,  3, -1, 1.0 ),
+		vec4( -3, -3, -1, 1.0 ),
+		vec4(  3, -3, -1, 1.0 )
+    ];
+
+var rectangle = [
+		vec4(-10,-10, 10, 1.0),
+		vec4(-10,10, 10, 1.0),
+		vec4(10,-10, 10, 1.0),
+		vec4(10,10, 10, 1.0),
+		vec4(-10,10, 10, 1.0),
+		vec4(10,-10, 10,1.0)
+	];
+
+var gModelMatrix = mat4();		
+var gMVPMatrix = mat4();
+
+window.onload = function init() {
+    canvas = document.getElementById( "gl-canvas" );
+    
+    gl = WebGLUtils.setupWebGL( canvas );
+    if ( !gl ) { alert( "WebGL isn't available" ); }
+
+	gl.viewport(0,0, canvas.width, canvas.height);
+	gl.clearColor( 0.1, 0.3, 0.1, 1.0 ); 
+	gl.clear( gl.COLOR_BUFFER_BIT );
+    gl.enable(gl.DEPTH_TEST);
+
+	
+	shadowProgram = initShaders( gl, "shadowVshader", "shadowFshader" );
+	shadowProgram.aPosition = gl.getAttribLocation(shadowProgram, "aPosition");
+	shadowProgram.uMVPmatrix = gl.getUniformLocation(shadowProgram, "uMVPmatrix");
+
+    normProgram = initShaders( gl, "normVshader", "normFshader" );
+	normProgram.aPosition = gl.getAttribLocation(normProgram, "aPosition");
+	normProgram.aColor = gl.getAttribLocation(normProgram, "aColor");
+	normProgram.uMVPmatrix = gl.getUniformLocation(normProgram, "uMVPmatrix");
+	normProgram.uMVPmatrixFL = gl.getUniformLocation(normProgram, "uMVPmatrixFL");
+	normProgram.uShadowMap = gl.getUniformLocation(normProgram, "uShadowMap");
+	
+	buildPrism();	
+	buildRect(); 	
+	fbo = initFramebufferObject();
+	gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, fbo.texture);
+	window.alert(fbo.texture);
+
+	gl.useProgram(normProgram);
+
+    var vBuffer = gl.createBuffer();
+    gl.bindBuffer( gl.ARRAY_BUFFER, vBuffer );
+    gl.bufferData( gl.ARRAY_BUFFER, flatten(pointsArray), gl.STATIC_DRAW );
+
+    gl.vertexAttribPointer( normProgram.aPosition, 4, gl.FLOAT, false, 0, 0 );
+    gl.enableVertexAttribArray( normProgram.aPosition );
+	
+	var vsBuffer = gl.createBuffer();
+    gl.bindBuffer( gl.ARRAY_BUFFER, vsBuffer );
+    gl.bufferData( gl.ARRAY_BUFFER, flatten(pointsArray), gl.STATIC_DRAW );
+
+    gl.vertexAttribPointer( shadowProgram.aPosition, 4, gl.FLOAT, false, 0, 0 );
+    gl.enableVertexAttribArray( shadowProgram.aPosition );
+
+	var cBuffer = gl.createBuffer();
+    gl.bindBuffer( gl.ARRAY_BUFFER, cBuffer );
+    gl.bufferData( gl.ARRAY_BUFFER, flatten(colorsArray), gl.STATIC_DRAW );
+
+    gl.vertexAttribPointer( normProgram.aColor, 4, gl.FLOAT, false, 0, 0 );
+    gl.enableVertexAttribArray( normProgram.aColor );
+		    
+	var LIGHTX = -2;
+	var LIGHTY = 0;
+	var LIGHTZ = -8;
+	viewProjMFL = perspective(45, OFFSCREEN_WIDTH/OFFSCREEN_HEIGHT, 1.0, 100.0);
+	viewProjMFL = mult(viewProjMFL, lookAt(vec3(LIGHTX,LIGHTY,LIGHTZ), vec3(2, 0, 0), vec3(0.0, 1.0, 0.0)));
+
+	viewProjM = perspective(45, canvas.width/canvas.height, 1.0, 100.0);
+	viewProjM = mult(viewProjM, lookAt(vec3(-2.0,0.0, -25.0), vec3(2.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0)));
+	
+	currentAngle = 0.0;
+	
+	mvpMFLt = mat4();
+	mvpMFLp = mat4();
+
+	
+	render();
+	
+			//event listeners for keyboard 
+	window.onkeydown = function(event) {
+		var key = String.fromCharCode(event.keyCode);
+		switch (key) {			
+			case "&":
+				xaxis = 1;
+				yaxis = 0;
+				break;
+			case "%":
+				//move left
+				xaxis = 0;
+				yaxis = -1;
+				break;
+			case "(":
+				xaxis = -1;
+				yaxis = 0;
+				break;
+			case "'":
+				//move right
+				xaxis = 0;
+				yaxis = 1;
+				break;
+		}
+	};
+	//tick(gl);
+};
+
+function render() {
+	currentAngle = animate(currentAngle);
+	
+	//shadow stuffs	
+	gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+	gl.viewport( 0, 0, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT );
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+	gl.useProgram(shadowProgram);
+	
+	//prism settings
+    gModelMatrix = viewProjMFL;
+	gModelMatrix = mult(gModelMatrix, rotate(currentAngle,xaxis,yaxis,0));
+	gMVPMatrix = mat4();
+	gMVPMatrix = mult(gMVPMatrix, gModelMatrix);
+	gl.uniformMatrix4fv(shadowProgram.uMVPmatrix, false, flatten(gMVPMatrix));
+    gl.drawArrays( gl.TRIANGLES, 0, 24);
+	mvpMFLp = gMVPMatrix;
+	
+	//rectangle settings
+	gModelMatrix = viewProjMFL;
+	gMVPMatrix = mat4();
+	gMVPMatrix = mult(gMVPMatrix, gModelMatrix);
+	gl.uniformMatrix4fv(shadowProgram.uMVPmatrix, false, flatten(gMVPMatrix));
+    gl.drawArrays( gl.TRIANGLES, 24, 6);
+	mvpMFLt = gMVPMatrix; 
+	
+	// normal drawing
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	gl.viewport(0,0, canvas.width, canvas.height);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	
+	gl.useProgram(normProgram);
+	gl.uniform1i(normProgram.uShadowMap, 0);
+	
+	//prism settings
+    gModelMatrix = viewProjM;
+	gModelMatrix = mult(gModelMatrix, rotate(135,xaxis,yaxis,0));
+	gMVPMatrix = mat4();
+	gMVPMatrix = mult(gMVPMatrix, gModelMatrix);
+	gl.uniformMatrix4fv(normProgram.uMVPmatrix, false, flatten(gMVPMatrix));
+	gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, flatten(mvpMFLp));
+    gl.drawArrays( gl.TRIANGLES, 0, 24);
+	
+	//rectangle settings
+	gModelMatrix = viewProjM;
+	gMVPMatrix = mat4();
+	gMVPMatrix = mult(gMVPMatrix, gModelMatrix);
+	gl.uniformMatrix4fv(normProgram.uMVPmatrix, false, flatten(gMVPMatrix));
+	gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, flatten(mvpMFLt));
+    gl.drawArrays( gl.TRIANGLES, 24, 6);
+	
+	requestAnimFrame(render);
+}
+
+function tick(gl){
+		currentAngle = animate(currentAngle);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		gl.viewport( 0, 0, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT );
+		gl.clear(gl.COLOR_BUFFER_BIT | g1.DEPTH_BUFFER_BIT);
+		
+		g1.useProgram(shadowProgram);
+		drawPrism(shadowProgram, prism, currentAngle, viewProjMFL);
+		mvpMFLt.set(g_mvpMatrix);
+		drawRect(shadowProgram, rectangle, viewProjMFL);
+		mvpMFLp.set(g_mvpMatrix);
+		
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.viewport(0,0, canvas.width, canvas.height);
+		gl.clear(gl.COLOR_BUFFER_BIT | g1.DEPTH_BUFFER_BIT);
+		
+		gl.useProgram(normProgram);
+		gl.uniformli(normProgram.uShadowMap, 0);
+		gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, mvpMFLt.elements);
+		drawPrism(normProgram, prism, currentAngle, viewProjM);
+		gl.uniformMatrix4fv(normProgram.uMVPmatrixFL, false, mvpMFLp.elements);
+		drawRect(normProgram, rectangle, viewProjM);
+		
+		window.requestAnimFrame(tick, canvas);
+	}
+
+function drawPrism(program, prism, angle, viewProjM){
+	gModelMatrix.setRotate(angle,0,1,0);
+	draw(program, prism, viewProjM);
+}
+
+function drawRect(program, rectangle, viewProjM){
+	gModelMatrix.setRotate(-45,0,1,1);
+	draw(program, rectangle, viewProjM);
+}
+
+function draw(program, o, viewProjM){
+	initAttibuteVariable(gl, program.aPosition, o.vertexBuffer);
+	if(program.aColor != undefined)
+		initAttibuteVariable(gl, program.aColor, o.colorBuffer);
+		
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indexBuffer);
+	
+	gMVPMatrix.set(viewProjM);
+	gMVPMatrix.multiply(gModelMatrix);
+	gl.uniformMatrix4fv(program.uMVPmatrix, false, gMVPMatrix.elements);
+	
+	gl.drawElements(gl.TRIANGLES, o.numIndices, gl.UNSIGNED_BYTE, 0);
+}
+
+function initFramebufferObject(){
+	var f,t,d;
+	f = gl.createFramebuffer();
+	
+	t = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_2D, t);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	
+	d = gl.createRenderbuffer();
+	gl.bindRenderbuffer(gl.RENDERBUFFER, d);
+	gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT);
+	
+	gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+	gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, d);
+	
+	f.texture = t;
+	
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	gl.bindTexture(gl.TEXTURE_2D, null);
+	gl.bindRenderbuffer(gl.RENDERBUFFER, null);
+	
+	return f;
+}
+
+function animate(angle){
+	var now = Date.now();
+	var elapsed = now - last;
+	last = now;
+	
+	var newAngle = angle + (ANGLE_STEP*elapsed) /1000.0;
+	return newAngle%360;
+}
+
+function quad(a, b, c, d) {
+     pointsArray.push(vertices[a]); 
+	 colorsArray.push(basicColors[1]);
+     pointsArray.push(vertices[b]); 
+	 colorsArray.push(basicColors[1]);
+     pointsArray.push(vertices[c]); 
+	 colorsArray.push(basicColors[1]);
+     pointsArray.push(vertices[a]);  
+	 colorsArray.push(basicColors[1]);
+     pointsArray.push(vertices[c]); 
+	 colorsArray.push(basicColors[1]);
+     pointsArray.push(vertices[d]); 
+	 colorsArray.push(basicColors[1]);
+}
+
+function tri(a,b,c){
+	var indices = [a,b,c];
+	
+	for ( var i = 0; i < indices.length; ++i ) {
+        pointsArray.push( vertices[indices[i]] );
+		colorsArray.push(basicColors[2]);
+    } 
+}
+
+function buildPrism()
+{
+    quad( 0, 1, 4, 3 );
+    quad( 2, 0, 3, 5 );
+    quad( 1, 2, 5, 4 );
+	tri( 0, 1, 2);
+	tri( 5, 4, 3);
+}
+
+function buildRect(){
+	for ( var i = 0; i < rectangle.length; ++i ) {
+        pointsArray.push( rectangle[i] );
+		colorsArray.push(basicColors[4]);
+    } 
+}
